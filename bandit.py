@@ -1,7 +1,12 @@
 import random as rnd
 from typing import List
 import matplotlib.pyplot as plt
+from matplotlib.collections import LineCollection
 import numpy as np
+
+## Seed
+rnd.seed(42)
+
 
 ############################################################
 #################     MACHINES       #######################
@@ -21,7 +26,7 @@ class Bandit:
 
 def init_casino() -> List[Bandit]:
     casino: List[Bandit] = []
-    for i in range(10):
+    for i in range(100):
         casino.append(Bandit((rnd.random()+0.3+0.4)/3))
     casino.sort(key=lambda x: x.prob)
     return casino
@@ -36,6 +41,7 @@ class Player:
         self.money = money
         self.casino = casino
         self.history = [money]
+        self.machine_history: List[int] = [] 
     
     def play(self, machine: Bandit, consideration: float = 1.0):
         self.money -= consideration
@@ -67,12 +73,15 @@ class RandomStrategy(Player):
     def simulate(self, rounds: int):
         for i in range(rounds):
             machine_num: int = rnd.randint(0, len(self.casino)-1)
+            self.machine_history.append(machine_num)
             self.play(self.casino[machine_num])
 
 class OptimalStrategy(Player):
     def simulate(self, rounds):
+        best_index = len(self.casino) - 1
         for i in range(rounds):
-            self.play(self.casino[len(self.casino)-1])
+            self.machine_history.append(best_index)
+            self.play(self.casino[best_index])
 
 class UCB1(Player):
     def __init__(self, casino, money = 1000):
@@ -83,6 +92,7 @@ class UCB1(Player):
 
     def play(self, machine_index, consideration = 1):
         reward = super().play(self.casino[machine_index], consideration)
+        self.machine_history.append(machine_index)
         self.total_rewards[machine_index] += reward
         self.total_machine_plays[machine_index] += 1
         self.total_plays += 1
@@ -120,10 +130,12 @@ class UCB1(Player):
 ############################################################
 
 
-def simulate(strategies: List[Player], rounds: int):
+def simulate(strategies: List[Player], rounds: int, colour_optimal: bool = False):
     """
     Simulates the given number of rounds, and plots the results
-    from all simulations in the same plot
+    from all simulations in the same plot.
+    If colour_optimal is True, colours the line segments green on
+    rounds where the optimal bandit was played.
     """
     # run each strategy's simulation
     for strategy in strategies:
@@ -133,18 +145,48 @@ def simulate(strategies: List[Player], rounds: int):
     fig, ax = plt.subplots(figsize=(8, 4))
 
     for strategy in strategies:
-        x = range(len(strategy.history))
+        x = np.arange(len(strategy.history))
         label = type(strategy).__name__
-        ax.plot(x, strategy.history, label=label)
+        history = np.asarray(strategy.history)
+
+        # base line in its own colour
+        (line,) = ax.plot(x, history, label=label)
+
+        if colour_optimal and strategy.machine_history:
+            # find optimal machine for this strategy's casino
+            optimal_index = max(
+                range(len(strategy.casino)),
+                key=lambda i: strategy.casino[i].prob
+            )
+
+            machines = np.asarray(strategy.machine_history)
+            # indices t where optimal machine was played (rounds are 1..N)
+            opt_rounds = np.nonzero(machines == optimal_index)[0] + 1
+
+            if opt_rounds.size > 0:
+                # build segments [((t-1, y[t-1]), (t, y[t]))] for all optimal rounds
+                segs = np.stack([
+                    np.column_stack((opt_rounds - 1, history[opt_rounds - 1])),
+                    np.column_stack((opt_rounds,     history[opt_rounds]))
+                ], axis=1)
+                # segs.shape = (num_segments, 2, 2)
+
+                lc = LineCollection(
+                    segs,
+                    colors="green",
+                    linewidths=line.get_linewidth()
+                )
+                ax.add_collection(lc)
 
     ax.set_xlabel("Round")
     ax.set_ylabel("Money")
     ax.set_title(f"Player balance over time ({rounds} rounds)")
     ax.grid(True, linestyle="--", alpha=0.5)
-    ax.legend()
+    ax.legend(loc="upper left")
 
     plt.tight_layout()
     plt.show()
+
 
 
 
@@ -161,4 +203,4 @@ if __name__ == "__main__":
     #r = RandomStrategy(casino)
     o = OptimalStrategy(casino)
     u = UCB1(casino)
-    simulate(strategies=[o, u], rounds=1_000_000)
+    simulate(strategies=[o, u], rounds=1_000_000, colour_optimal=True)
