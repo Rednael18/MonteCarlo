@@ -42,6 +42,7 @@ class Player:
         win_amount = machine.play(consideration)
         self.money += win_amount
         self.history.append(self.money)
+        return win_amount
     
     def simulate(self, rounds: int):
         pass
@@ -72,6 +73,46 @@ class OptimalStrategy(Player):
     def simulate(self, rounds):
         for i in range(rounds):
             self.play(self.casino[len(self.casino)-1])
+
+class UCB1(Player):
+    def __init__(self, casino, money = 1000):
+        super().__init__(casino, money)
+        self.total_rewards = {k: 0 for k in range(len(self.casino))}
+        self.total_machine_plays = {k: 0 for k in range(len(self.casino))}
+        self.total_plays = 0
+
+    def play(self, machine_index, consideration = 1):
+        reward = super().play(self.casino[machine_index], consideration)
+        self.total_rewards[machine_index] += reward
+        self.total_machine_plays[machine_index] += 1
+        self.total_plays += 1
+
+    def machine_value(self, machine_index):
+        x_avg = self.total_rewards[machine_index] / self.total_machine_plays[machine_index]
+        return x_avg + np.sqrt(2*np.log(self.total_plays)/self.total_machine_plays[machine_index])
+    
+    def max_machine_value(self):
+        max = -np.inf
+        max_mach = None
+        for i in range(len(self.casino)):
+            val = self.machine_value(i)
+            if val>max:
+                max = val
+                max_mach = i
+        return max_mach
+
+    def simulate(self, rounds):
+        init_rounds = len(self.casino)
+        assert rounds >= init_rounds, "Must complete more rounds than number of machines"
+        leftover = rounds - init_rounds
+
+        for i in range(init_rounds):
+            self.play(i)
+        for i in range(leftover):
+            max_machine = self.max_machine_value()
+            self.play(machine_index=max_machine)
+
+    
 
 
 ############################################################
@@ -117,7 +158,7 @@ if __name__ == "__main__":
 
 
 
-    r = RandomStrategy(casino)
+    #r = RandomStrategy(casino)
     o = OptimalStrategy(casino)
-
-    simulate(strategies=[r, o], rounds=10_000)
+    u = UCB1(casino)
+    simulate(strategies=[o, u], rounds=1_000_000)
